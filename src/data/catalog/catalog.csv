@@ -1,0 +1,9 @@
+id,name,type,constellation,ra,dec
+m42,Orion Nebula,nebula,Orion,5.591,-5.45
+m31,Andromeda Galaxy,galaxy,Andromeda,0.712,41.27
+m13,Hercules Globular Cluster,cluster,Hercules,16.695,36.46
+m27,Dumbbell Nebula,nebula,Vulpecula,19.993,22.72
+m57,Ring Nebula,nebula,Lyra,18.885,33.03
+m51,Whirlpool Galaxy,galaxy,Canes Venatici,13.497,47.2
+m81,Bode’s Galaxy,galaxy,Ursa Major,9.926,69.07
+m20,Trifid Nebula,nebula,Sagittarius,18.043,-23.02
