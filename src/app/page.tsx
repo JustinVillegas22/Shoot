@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { HOME, DECK } from "@/config/observing";
 import { OBJECTS } from "@/data/objects";
@@ -11,6 +11,7 @@ import { getMoonNow } from "@/lib/moon";
 import { getVisibilityTonight } from "@/lib/visibility";
 import { rateDwarfMiniTarget, sortForDwarfMini, type Suitability } from "@/lib/dwarfMini";
 import { getSunTimes } from "@/lib/sun";
+import { buildWikiTitleCandidates } from "@/lib/wikiTitles";
 
 type Mode = "home" | "away" | "unknown";
 type Status = "locating" | "ready" | "error";
@@ -24,6 +25,27 @@ type VisibleObject = {
 
 type Thumb = { src: string | null; pageUrl: string | null };
 
+function clampToNight<T extends { start: Date; end: Date; best: Date }>(
+  w: T,
+  sun: { sunset: Date | null; sunrise: Date | null } | null
+): T | null {
+  if (!sun?.sunset || !sun?.sunrise) return w;
+
+  // If the window doesn't overlap night at all, drop it
+  if (w.end <= sun.sunset) return null;
+  if (w.start >= sun.sunrise) return null;
+
+  const start = w.start < sun.sunset ? sun.sunset : w.start;
+  const end = w.end > sun.sunrise ? sun.sunrise : w.end;
+
+  if (end <= start) return null;
+
+  // Keep best as-is, but clamp into [start,end]
+  const best = w.best < start ? start : w.best > end ? end : w.best;
+
+  return { ...w, start, end, best };
+}
+
 function formatTime(d: Date) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -31,6 +53,9 @@ function formatTime(d: Date) {
 function MoonPhaseThumb(props: { phaseAngle: number | null | undefined; size?: number }) {
   const size = props.size ?? 64;
   const r = size / 2;
+
+  const uid = useId();
+const clipId = `moon-clip-${uid}`;
 
   if (props.phaseAngle == null) {
     return (
@@ -71,16 +96,16 @@ function MoonPhaseThumb(props: { phaseAngle: number | null | undefined; size?: n
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label="Moon phase">
       <defs>
-        <clipPath id={`moon-clip-${size}`}>
-          <circle cx={r} cy={r} r={r - 1} />
-        </clipPath>
+        <clipPath id={clipId}>
+  <circle cx={r} cy={r} r={r - 1} />
+</clipPath>
       </defs>
 
       {/* base disk */}
       <circle cx={r} cy={r} r={r - 1} fill="rgb(38 38 38)" />
 
       {/* lighting */}
-      <g clipPath={`url(#moon-clip-${size})`}>
+      <g clipPath={`url(#${clipId})`}>
         {isGibbousOrFull ? (
           <>
             {/* full bright disk */}
@@ -161,26 +186,44 @@ function useWikiThumbnails(items: { id: string; titles: string[] }[]) {
     (async () => {
       if (!items.length) return;
 
-      const cacheKey = "shootTonight.wikiThumbs.v7"; // bump when logic changes
+      const cacheKey = "shootTonight.wikiThumbs.v8"; // bump
       const cachedRaw = localStorage.getItem(cacheKey);
       const cached: Record<string, Thumb> = cachedRaw ? JSON.parse(cachedRaw) : {};
 
-      // NOTE: we treat cached null as "done" (prevents hammering).
-      // If you want to retry nulls nightly later, we can add a TTL.
       const missing = items.filter((it) => cached[String(it.id)] === undefined);
 
       if (!cancelled) setThumbs(cached);
       if (!missing.length) return;
 
-      const res = await fetch("/api/wiki-thumb", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: missing }),
-      });
+      // fetch in parallel, but gently
+      const results = await Promise.all(
+        missing.map(async (it) => {
+          try {
+            const res = await fetch("/api/wiki-object", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ titles: it.titles }),
+            });
 
-      if (!res.ok) return;
+            if (!res.ok) return [it.id, { src: null, pageUrl: null }] as const;
 
-      const fresh = (await res.json()) as Record<string, Thumb>;
+            const data = (await res.json()) as {
+              pageUrl: string | null;
+              thumbSrc: string | null;
+              imageSrc: string | null;
+            };
+
+            // prefer thumbSrc, fallback to imageSrc
+            const src = data.thumbSrc ?? data.imageSrc ?? null;
+
+            return [it.id, { src, pageUrl: data.pageUrl ?? null }] as const;
+          } catch {
+            return [it.id, { src: null, pageUrl: null }] as const;
+          }
+        })
+      );
+
+      const fresh = Object.fromEntries(results);
       const merged = { ...cached, ...fresh };
 
       localStorage.setItem(cacheKey, JSON.stringify(merged));
@@ -194,6 +237,8 @@ function useWikiThumbnails(items: { id: string; titles: string[] }[]) {
 
   return thumbs;
 }
+
+
 
 /** Local hook: owns location + mode choice. */
 function useObservingContext() {
@@ -222,14 +267,25 @@ function useObservingContext() {
 
         setCurrent(loc);
 
-        const home = isWithinRadius(loc, { lat: HOME.lat, lng: HOME.lng }, HOME.radiusMeters);
-        if (home) {
-          setMode("home");
-          setNeedsChoice(false);
-        } else {
-          setMode("unknown");
-          setNeedsChoice(true);
-        }
+        const saved = (typeof window !== "undefined"
+  ? (localStorage.getItem("shootTonight.mode") as Mode | null)
+  : null);
+
+const home = isWithinRadius(loc, { lat: HOME.lat, lng: HOME.lng }, HOME.radiusMeters);
+
+if (home) {
+  // If you're actually at home, force home mode
+  setMode("home");
+  setNeedsChoice(false);
+} else if (saved === "home" || saved === "away") {
+  // If you're away, honor the user's saved choice
+  setMode(saved);
+  setNeedsChoice(false);
+} else {
+  // No saved choice yet
+  setMode("unknown");
+  setNeedsChoice(true);
+}
 
         setStatus("ready");
       } catch (e: any) {
@@ -244,15 +300,17 @@ function useObservingContext() {
     };
   }, []);
 
-  const chooseHome = () => {
-    setMode("home");
-    setNeedsChoice(false);
-  };
+const chooseHome = () => {
+  localStorage.setItem("shootTonight.mode", "home");
+  setMode("home");
+  setNeedsChoice(false);
+};
 
-  const chooseAway = () => {
-    setMode("away");
-    setNeedsChoice(false);
-  };
+const chooseAway = () => {
+  localStorage.setItem("shootTonight.mode", "away");
+  setMode("away");
+  setNeedsChoice(false);
+};
 
   return { status, error, current, mode, needsChoice, isHome, chooseHome, chooseAway };
 }
@@ -278,8 +336,9 @@ function useVisibleObjects(args: {
   status: Status;
   mode: Mode;
   moon: { altitude: number; azimuth: number; illumination: number } | null;
+  sunTimes: { sunset: Date | null; sunrise: Date | null } | null;
 }) {
-  const { current, status, mode, moon } = args;
+  const { current, status, mode, moon, sunTimes } = args;
 
   return useMemo<VisibleObject[]>(() => {
     if (!current || status !== "ready") return [];
@@ -288,15 +347,20 @@ function useVisibleObjects(args: {
     const out: VisibleObject[] = [];
 
     for (const obj of OBJECTS) {
-      const visibility = getVisibilityTonight(
-        obj,
-        current,
-        DECK.minAltitude,
-        useDeck ? DECK.azimuthStart : undefined,
-        useDeck ? DECK.azimuthEnd : undefined
-      );
+  const visibilityRaw = getVisibilityTonight(
+    obj,
+    current,
+    DECK.minAltitude,
+    useDeck ? DECK.azimuthStart : undefined,
+    useDeck ? DECK.azimuthEnd : undefined
+  );
 
-      if (!visibility) continue;
+  if (!visibilityRaw) continue;
+
+  const visibility = clampToNight(visibilityRaw, sunTimes);
+
+  if (!visibility) continue;
+
 
       const rating = rateDwarfMiniTarget({ obj, window: visibility, moon });
 
@@ -409,7 +473,7 @@ function AvailableTonightSection(props: {
     if (!canShowResults) return [];
     return visibleObjects.map(({ obj }) => ({
       id: String(obj.id),
-      titles: buildTitleCandidates({ id: obj.id, name: obj.name }),
+      titles: buildWikiTitleCandidates({ id: String(obj.id), name: String(obj.name), messierId: obj.messierId }),
     }));
   }, [canShowResults, visibleObjects]);
 
@@ -429,23 +493,23 @@ function AvailableTonightSection(props: {
     {/* Thumbnail */}
     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-neutral-50">
       {status === "ready" && moon ? (
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/FullMoon2010.jpg/128px-FullMoon2010.jpg"
-          alt="Moon"
-          className="h-full w-full object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-xs text-neutral-400">
-          —
-        </div>
-      )}
+  <img
+    src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/FullMoon2010.jpg/128px-FullMoon2010.jpg"
+    alt="Moon"
+    className="h-full w-full object-cover"
+    loading="lazy"
+    referrerPolicy="no-referrer"
+  />
+) : (
+  <div className="flex h-full w-full items-center justify-center text-xs text-neutral-400">
+    —
+  </div>
+)}
     </div>
 
     {/* Text */}
-    <div className="min-w-0">
-      <div className="flex items-center gap-2 font-semibold">
+    <div className="flex-1 min-w-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold">
         <span className="truncate">Moon</span>
       </div>
 
@@ -486,7 +550,7 @@ function AvailableTonightSection(props: {
               <Link
                 key={obj.id}
                 href={`/object/${obj.id}?mode=${mode}&lat=${current?.lat ?? ""}&lng=${current?.lng ?? ""}`}
-                className="block rounded-lg border p-3 hover:bg-neutral-50"
+                className="block w-full max-w-full overflow-hidden rounded-lg border p-3 hover:bg-neutral-50"
               >
                 <div className="flex gap-3">
                   {/* Thumbnail */}
@@ -504,8 +568,8 @@ function AvailableTonightSection(props: {
                   </div>
 
                   {/* Text */}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 font-semibold">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold">
                       <span className="truncate">{obj.name}</span>
 
                       {suitability === "great" && (
@@ -547,6 +611,7 @@ export default function Page() {
     status: observing.status,
     mode: observing.mode,
     moon,
+    sunTimes,
   });
 
   return (

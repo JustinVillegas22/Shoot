@@ -10,6 +10,14 @@ import { getVisibilityTonight } from "@/lib/visibility";
 
 type Mode = "home" | "away" | "unknown";
 
+type MoodTrack = {
+  song: string;
+  artist: string;
+  reason: string;
+  artworkUrl: string | null;
+  appleMusicUrl: string | null;
+};
+
 function formatTime(d: Date) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -20,6 +28,7 @@ function useMounted() {
   return mounted;
 }
 
+// NOTE: Keeping your local title-candidate builder as-is for now.
 function buildWikiTitleCandidates(obj: { id: string; name: string }) {
   const idRaw = String(obj.id ?? "").trim();
   const name = String(obj.name ?? "").trim();
@@ -31,8 +40,7 @@ function buildWikiTitleCandidates(obj: { id: string; name: string }) {
   if (messierMatch) titles.push(`Messier ${messierMatch[1]}`);
 
   // 2) Prefer full NGC / IC pages
-  const ngcMatch =
-    idRaw.match(/^(NGC|IC)\s?(\d+)$/i) || name.match(/^(NGC|IC)\s?(\d+)$/i);
+  const ngcMatch = idRaw.match(/^(NGC|IC)\s?(\d+)$/i) || name.match(/^(NGC|IC)\s?(\d+)$/i);
   if (ngcMatch) titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]}`);
 
   // 3) Try common name
@@ -85,6 +93,10 @@ export default function ObjectPage() {
   const [wiki, setWiki] = useState<WikiObjectInfo | null>(null);
   const [wikiStatus, setWikiStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
+  const [mood, setMood] = useState<MoodTrack | null>(null);
+  const [moodStatus, setMoodStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
+  // Wikipedia object info
   useEffect(() => {
     let cancelled = false;
 
@@ -116,6 +128,64 @@ export default function ObjectPage() {
       } catch {
         if (cancelled) return;
         setWikiStatus("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [obj?.id]);
+
+  // Mood track (cached per object)
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!obj) return;
+
+      setMoodStatus("loading");
+      setMood(null);
+
+      try {
+        const cacheKey = `shootTonight.moodTrack.v1.${obj.id}`;
+        const cachedRaw = localStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw) as MoodTrack;
+          if (!cancelled) {
+            setMood(cached);
+            setMoodStatus("ready");
+          }
+          return;
+        }
+
+        const res = await fetch("/api/mood-track", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+  obj: {
+    id: obj.id,
+    name: obj.name,
+    type: obj.type,
+    constellation: obj.constellation,
+  },
+  context: {
+    wikiExtract: wiki?.extract ?? null,
+  },
+}),
+        });
+
+        if (!res.ok) throw new Error("mood failed");
+
+        const data = (await res.json()) as MoodTrack;
+
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+
+        if (!cancelled) {
+          setMood(data);
+          setMoodStatus("ready");
+        }
+      } catch {
+        if (!cancelled) setMoodStatus("error");
       }
     })();
 
@@ -199,6 +269,37 @@ export default function ObjectPage() {
             Max alt: {Math.round(window.maxAlt)}°
           </p>
         )}
+      </section>
+
+      {/* Mood Track */}
+      <section className="mt-4 rounded-xl border p-4">
+        <h2 className="font-semibold">Mood Track</h2>
+
+        {moodStatus === "loading" && <p className="mt-2 text-sm text-neutral-600">Finding your vibe…</p>}
+        {moodStatus === "error" && <p className="mt-2 text-sm text-neutral-600">Couldn’t load a mood track.</p>}
+
+        {moodStatus === "ready" && mood ? (
+          <div className="mt-3 flex gap-3">
+            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-neutral-50">
+              {mood.artworkUrl ? (
+                <img src={mood.artworkUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+              ) : null}
+            </div>
+
+            <div className="min-w-0">
+              <div className="font-semibold">
+                {mood.song} — {mood.artist}
+              </div>
+              <p className="mt-1 text-sm text-neutral-700">{mood.reason}</p>
+
+              {mood.appleMusicUrl ? (
+                <a className="mt-2 inline-block text-sm underline" href={mood.appleMusicUrl} target="_blank" rel="noreferrer">
+                  Open in Apple Music
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* About */}
