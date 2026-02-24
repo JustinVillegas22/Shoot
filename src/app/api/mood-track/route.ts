@@ -9,6 +9,7 @@ type AstroObjectLite = {
 };
 
 type MoodPick = {
+  // We'll ignore this for YouTube search, but keep it in the schema so the model behaves.
   query: string;
   song: string;
   artist: string;
@@ -48,7 +49,8 @@ Rules:
 - Be specific to THIS object.
 - Reference one real detail if possible.
 - Pick a real song on YouTube.
-- Return valid JSON only.
+- Return valid JSON only that matches the schema.
+- IMPORTANT: "query" must be ONLY the song title and artist (no extra words).
 `;
 
   const resp = await openai.responses.create({
@@ -89,30 +91,26 @@ export async function POST(req: Request) {
     };
 
     const obj = body?.obj;
-
     if (!obj?.id || !obj?.name) {
       return NextResponse.json({ error: "Missing obj" }, { status: 400 });
     }
 
-    const pick = await pickWithOpenAI(
-      obj,
-      body.context?.wikiExtract ?? null
-    );
+    const pick = await pickWithOpenAI(obj, body.context?.wikiExtract ?? null);
+
+    // ✅ Build the YouTube search query ourselves (don't trust model "query")
+    const ytQuery = `${pick.song} ${pick.artist}`.trim();
 
     return NextResponse.json({
       song: pick.song,
       artist: pick.artist,
       reason: pick.reason,
-      query: pick.query,
-
-      // single universal link
-      youtubeUrl: youtubeUrl(pick.query),
+      query: ytQuery,
+      youtubeUrl: youtubeUrl(ytQuery),
     });
   } catch (e: any) {
     console.error("mood-track error:", e);
-
     return NextResponse.json(
-      { error: "Failed to generate mood track" },
+      { error: "Failed to generate mood track", detail: String(e?.message ?? e) },
       { status: 500 }
     );
   }
