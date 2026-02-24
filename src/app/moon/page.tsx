@@ -1,10 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-
-import { HOME } from "@/config/observing";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -27,23 +24,47 @@ function useMounted() {
   return mounted;
 }
 
+// Fallback coords if nothing is provided in the URL.
+// (Use whatever default you want; these are New Orleans-ish.)
+const FALLBACK_LAT = 29.9729;
+const FALLBACK_LNG = -90.0857;
+
 export default function MoonPage() {
   const mounted = useMounted();
-  const searchParams = useSearchParams();
 
-  const mode = (searchParams.get("mode") as Mode) ?? "unknown";
-  const lat = Number(searchParams.get("lat") ?? HOME.lat);
-  const lng = Number(searchParams.get("lng") ?? HOME.lng);
+  const [mode, setMode] = useState<Mode>("unknown");
+  const [lat, setLat] = useState<number>(FALLBACK_LAT);
+  const [lng, setLng] = useState<number>(FALLBACK_LNG);
 
   const [moon, setMoon] = useState<MoonNow | null>(null);
   const [moonErr, setMoonErr] = useState<string | null>(null);
 
+  // Read URL params ONLY in the browser
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+
+      const nextMode = (params.get("mode") as Mode) ?? "unknown";
+      const nextLatRaw = params.get("lat");
+      const nextLngRaw = params.get("lng");
+
+      const nextLat = Number(nextLatRaw ?? FALLBACK_LAT);
+      const nextLng = Number(nextLngRaw ?? FALLBACK_LNG);
+
+      setMode(nextMode);
+      setLat(Number.isFinite(nextLat) ? nextLat : FALLBACK_LAT);
+      setLng(Number.isFinite(nextLng) ? nextLng : FALLBACK_LNG);
+    } catch {
+      // If parsing fails, keep defaults
+    }
+  }, []);
+
+  // Load moon logic ONLY in the browser
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        // Lazy-load to prevent Vercel build/prerender from importing server-incompatible code.
         const mod = await import("@/lib/moon");
         const nextMoon = mod.getMoonNow({ lat, lng }) as MoonNow;
 
@@ -65,24 +86,11 @@ export default function MoonPage() {
   }, [lat, lng]);
 
   const isAboveHorizon = (moon?.altitude ?? -999) > 0;
-
-  // hydration-safe "as of" time display
   const asOf = mounted ? formatTime(new Date()) : "—";
 
-  const altText = useMemo(() => {
-    if (!moon) return "—";
-    return `${moon.altitude.toFixed(1)}°`;
-  }, [moon]);
-
-  const azText = useMemo(() => {
-    if (!moon) return "—";
-    return `${moon.azimuth.toFixed(1)}°`;
-  }, [moon]);
-
-  const illumText = useMemo(() => {
-    if (!moon) return "—";
-    return `${Math.round(moon.illumination * 100)}%`;
-  }, [moon]);
+  const altText = useMemo(() => (moon ? `${moon.altitude.toFixed(1)}°` : "—"), [moon]);
+  const azText = useMemo(() => (moon ? `${moon.azimuth.toFixed(1)}°` : "—"), [moon]);
+  const illumText = useMemo(() => (moon ? `${Math.round(moon.illumination * 100)}%` : "—"), [moon]);
 
   return (
     <main className="mx-auto max-w-3xl p-6 font-sans">
@@ -163,17 +171,15 @@ export default function MoonPage() {
         <h2 className="font-semibold">About</h2>
 
         <p className="mt-2 text-sm text-neutral-700">
-          The Moon is Earth’s only natural satellite and the brightest object in
-          the night sky. It has been observed since prehistory, but early
-          telescopic observers like Galileo (1609) were the first to document
-          surface features in detail. For imaging, the Moon is a high-contrast
-          target—great for quick sessions, but it can also wash out faint deep-sky
-          objects when it’s bright or nearby.
+          The Moon is Earth’s only natural satellite and the brightest object in the night sky. It has been observed
+          since prehistory, but early telescopic observers like Galileo (1609) were the first to document surface
+          features in detail. For imaging, the Moon is a high-contrast target—great for quick sessions, but it can also
+          wash out faint deep-sky objects when it’s bright or nearby.
         </p>
 
         <p className="mt-2 text-xs text-neutral-500">
-          If you want the Wikipedia version later, we can pull the first paragraph
-          from the “Moon” page just like the object pages.
+          If you want the Wikipedia version later, we can pull the first paragraph from the “Moon” page just like the
+          object pages.
         </p>
       </section>
     </main>
