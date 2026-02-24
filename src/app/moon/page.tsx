@@ -1,14 +1,14 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
-
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { HOME } from "@/config/observing";
 import { getMoonNow } from "@/lib/moon";
+
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 type Mode = "home" | "away" | "unknown";
 
