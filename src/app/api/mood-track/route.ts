@@ -1,8 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 type AstroObjectLite = {
   id: string;
   name: string;
@@ -11,7 +9,7 @@ type AstroObjectLite = {
 };
 
 type MoodPick = {
-  query: string;  // "SONG ARTIST" for iTunes search
+  query: string; // "SONG ARTIST" for iTunes search
   song: string;
   artist: string;
   reason: string; // exactly 1 sentence, mention object name
@@ -21,6 +19,10 @@ async function pickWithOpenAI(
   obj: AstroObjectLite,
   wikiExtract: string | null
 ): Promise<MoodPick> {
+  // Instantiate OpenAI INSIDE the function so the module can be imported during build
+  // even if OPENAI_API_KEY isn't present yet.
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const schema = {
     type: "object",
     additionalProperties: false,
@@ -103,43 +105,43 @@ async function itunesSearch(query: string) {
 export async function POST(req: Request) {
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Missing OPENAI_API_KEY" },
+        { status: 500 }
+      );
     }
 
     const body = (await req.json()) as {
-  obj?: AstroObjectLite;
-  context?: { wikiExtract?: string | null };
-};
+      obj?: AstroObjectLite;
+      context?: { wikiExtract?: string | null };
+    };
+
     const obj = body?.obj;
 
     if (!obj?.id || !obj?.name) {
       return NextResponse.json({ error: "Missing obj" }, { status: 400 });
     }
 
-    const pick = await pickWithOpenAI(
-  obj,
-  body.context?.wikiExtract ?? null
-);
+    const pick = await pickWithOpenAI(obj, body.context?.wikiExtract ?? null);
     const itunes = await itunesSearch(pick.query);
 
     const webUrl = itunes?.appleMusicUrl ?? null;
 
-let appUrl: string | null = null;
-if (webUrl && webUrl.includes("music.apple.com")) {
-  appUrl = webUrl.replace(/^https?:\/\//, "music://");
-}
+    let appUrl: string | null = null;
+    if (webUrl && webUrl.includes("music.apple.com")) {
+      appUrl = webUrl.replace(/^https?:\/\//, "music://");
+    }
 
-return NextResponse.json({
-  song: pick.song,
-  artist: pick.artist,
-  reason: pick.reason,
-  artworkUrl: itunes?.artworkUrl ?? null,
-  appleMusicUrl: appUrl ?? webUrl,
-  query: pick.query,
-  resolvedTrackName: itunes?.resolvedTrackName ?? null,
-  resolvedArtistName: itunes?.resolvedArtistName ?? null,
-});
-
+    return NextResponse.json({
+      song: pick.song,
+      artist: pick.artist,
+      reason: pick.reason,
+      artworkUrl: itunes?.artworkUrl ?? null,
+      appleMusicUrl: appUrl ?? webUrl,
+      query: pick.query,
+      resolvedTrackName: itunes?.resolvedTrackName ?? null,
+      resolvedArtistName: itunes?.resolvedArtistName ?? null,
+    });
   } catch (e: any) {
     console.error("mood-track error:", e);
     return NextResponse.json(
