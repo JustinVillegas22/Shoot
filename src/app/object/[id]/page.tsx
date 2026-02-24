@@ -154,7 +154,7 @@ export default function ObjectPage() {
       setMood(null);
 
       try {
-        const cacheKey = `shootTonight.moodTrack.v3.${obj.id}`;
+        const cacheKey = `shootTonight.moodTrack.v4.${obj.id}`;
         const cachedRaw = localStorage.getItem(cacheKey);
         if (cachedRaw) {
           const cached = JSON.parse(cachedRaw) as MoodTrack;
