@@ -34,7 +34,7 @@ async function pickWithOpenAI(
   } as const;
 
   const prompt = `
-Pick ONE song that fits the mood of photographing this specific deep-sky object tonight.
+You are a music supervisor for an astrophotography app. Pick ONE song that fits the mood of photographing THIS specific object tonight.
 
 Object:
 - Name: ${obj.name}
@@ -44,11 +44,28 @@ Object:
 Wikipedia extract:
 ${wikiExtract ?? "(none)"}
 
-Rules:
-- Be specific to THIS object.
-- Reference one real detail if possible.
-- Pick a real song.
-- Return valid JSON only that matches the schema.
+Hard requirements:
+- The recommendation MUST feel tailored to ${obj.name} (not generic “space song”).
+- If the extract contains a distinctive detail (nickname, structure, age, distance, discoverer, galaxy type, notable feature), you MUST reference one in the reason.
+- The reason MUST be exactly one sentence, vivid, and mention "${obj.name}".
+- Pick a real song that is likely to exist (any era/genre is OK).
+
+Creativity + anti-cliché rules:
+- Avoid the obvious “space staples” unless they are uniquely perfect. Do NOT pick any of these:
+  - Space Oddity (David Bowie)
+  - Rocket Man (Elton John)
+  - Starman (David Bowie)
+  - Fly Me to the Moon (Sinatra)
+  - Man on the Moon (R.E.M.)
+  - Across the Universe (The Beatles)
+- Prefer one of these angles (choose ONE and commit):
+  1) sound/texture (bright, hazy, chaotic, crystalline, ominous)
+  2) structure/metaphor (rings, whirlpool, cluster, shadow, collision)
+  3) place/era (constellation myth vibe, retro sci-fi, swampy Louisiana night drive, etc.)
+  4) unexpected genre match (punk, doom, zydeco, gospel, ambient, metal, reggaeton—anything)
+- Aim for “delightfully weird but defensible.” Deep cuts are welcome.
+
+Output JSON that matches the schema exactly.
 `;
 
   const resp = await openai.responses.create({
