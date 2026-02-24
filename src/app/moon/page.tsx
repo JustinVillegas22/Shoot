@@ -5,12 +5,17 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { HOME } from "@/config/observing";
-import { getMoonNow } from "@/lib/moon";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 type Mode = "home" | "away" | "unknown";
+
+type MoonNow = {
+  altitude: number;
+  azimuth: number;
+  illumination: number; // 0..1
+};
 
 function formatTime(d: Date) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -30,11 +35,54 @@ export default function MoonPage() {
   const lat = Number(searchParams.get("lat") ?? HOME.lat);
   const lng = Number(searchParams.get("lng") ?? HOME.lng);
 
-  const moon = useMemo(() => getMoonNow({ lat, lng }), [lat, lng]);
-  const isAboveHorizon = moon.altitude > 0;
+  const [moon, setMoon] = useState<MoonNow | null>(null);
+  const [moonErr, setMoonErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Lazy-load to prevent Vercel build/prerender from importing server-incompatible code.
+        const mod = await import("@/lib/moon");
+        const nextMoon = mod.getMoonNow({ lat, lng }) as MoonNow;
+
+        if (!cancelled) {
+          setMoon(nextMoon);
+          setMoonErr(null);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setMoon(null);
+          setMoonErr(String(e?.message ?? e));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lng]);
+
+  const isAboveHorizon = (moon?.altitude ?? -999) > 0;
 
   // hydration-safe "as of" time display
   const asOf = mounted ? formatTime(new Date()) : "—";
+
+  const altText = useMemo(() => {
+    if (!moon) return "—";
+    return `${moon.altitude.toFixed(1)}°`;
+  }, [moon]);
+
+  const azText = useMemo(() => {
+    if (!moon) return "—";
+    return `${moon.azimuth.toFixed(1)}°`;
+  }, [moon]);
+
+  const illumText = useMemo(() => {
+    if (!moon) return "—";
+    return `${Math.round(moon.illumination * 100)}%`;
+  }, [moon]);
 
   return (
     <main className="mx-auto max-w-3xl p-6 font-sans">
@@ -80,24 +128,34 @@ export default function MoonPage() {
       <section className="mt-4 rounded-xl border p-4">
         <h2 className="font-semibold">Tonight</h2>
 
-        <p className="mt-1 text-sm">
-          Status:{" "}
-          {isAboveHorizon ? (
-            <span className="font-semibold text-green-700">Above horizon</span>
-          ) : (
-            <span className="font-semibold text-neutral-500">Below horizon</span>
-          )}
-        </p>
+        {moonErr ? (
+          <p className="mt-2 text-sm text-red-700">
+            Couldn’t load moon data: <span className="font-mono">{moonErr}</span>
+          </p>
+        ) : !moon ? (
+          <p className="mt-2 text-sm text-neutral-600">Loading moon position…</p>
+        ) : (
+          <>
+            <p className="mt-1 text-sm">
+              Status:{" "}
+              {isAboveHorizon ? (
+                <span className="font-semibold text-green-700">Above horizon</span>
+              ) : (
+                <span className="font-semibold text-neutral-500">Below horizon</span>
+              )}
+            </p>
 
-        <p className="mt-2 text-sm text-neutral-700">
-          As of {asOf}
-          {" • "}
-          Alt: <span className="font-mono">{moon.altitude.toFixed(1)}°</span>
-          {" • "}
-          Az: <span className="font-mono">{moon.azimuth.toFixed(1)}°</span>
-          {" • "}
-          Illumination: <span className="font-mono">{Math.round(moon.illumination * 100)}%</span>
-        </p>
+            <p className="mt-2 text-sm text-neutral-700">
+              As of {asOf}
+              {" • "}
+              Alt: <span className="font-mono">{altText}</span>
+              {" • "}
+              Az: <span className="font-mono">{azText}</span>
+              {" • "}
+              Illumination: <span className="font-mono">{illumText}</span>
+            </p>
+          </>
+        )}
       </section>
 
       {/* About */}
@@ -105,15 +163,17 @@ export default function MoonPage() {
         <h2 className="font-semibold">About</h2>
 
         <p className="mt-2 text-sm text-neutral-700">
-          The Moon is Earth’s only natural satellite and the brightest object in the night sky. It has been observed
-          since prehistory, but early telescopic observers like Galileo (1609) were the first to document surface
-          features in detail. For imaging, the Moon is a high-contrast target—great for quick sessions, but it can also
-          wash out faint deep-sky objects when it’s bright or nearby.
+          The Moon is Earth’s only natural satellite and the brightest object in
+          the night sky. It has been observed since prehistory, but early
+          telescopic observers like Galileo (1609) were the first to document
+          surface features in detail. For imaging, the Moon is a high-contrast
+          target—great for quick sessions, but it can also wash out faint deep-sky
+          objects when it’s bright or nearby.
         </p>
 
         <p className="mt-2 text-xs text-neutral-500">
-          If you want the Wikipedia version later, we can pull the first paragraph from the “Moon” page just like the
-          object pages.
+          If you want the Wikipedia version later, we can pull the first paragraph
+          from the “Moon” page just like the object pages.
         </p>
       </section>
     </main>
