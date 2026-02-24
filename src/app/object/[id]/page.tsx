@@ -28,30 +28,24 @@ function useMounted() {
   return mounted;
 }
 
-// NOTE: Keeping your local title-candidate builder as-is for now.
 function buildWikiTitleCandidates(obj: { id: string; name: string }) {
   const idRaw = String(obj.id ?? "").trim();
   const name = String(obj.name ?? "").trim();
 
   const titles: string[] = [];
 
-  // 1) Prefer Messier format
   const messierMatch = idRaw.match(/^M(\d+)$/i) || name.match(/^M(\d+)$/i);
   if (messierMatch) titles.push(`Messier ${messierMatch[1]}`);
 
-  // 2) Prefer full NGC / IC pages
   const ngcMatch =
     idRaw.match(/^(NGC|IC)\s?(\d+)$/i) || name.match(/^(NGC|IC)\s?(\d+)$/i);
   if (ngcMatch) titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]}`);
 
-  // 3) Try common name
   if (name && !/^(NGC|IC|M)\s?\d+/i.test(name)) titles.push(name);
 
-  // 4) NGC + galaxy disambiguation
   if (ngcMatch)
     titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]} galaxy`);
 
-  // 5) LAST RESORT: raw id (avoid Caldwell alone)
   if (idRaw && !/^C\d+$/i.test(idRaw)) titles.push(idRaw);
 
   return Array.from(new Set(titles));
@@ -64,7 +58,6 @@ type WikiObjectInfo = {
   thumbSrc: string | null;
   matchedTitle: string | null;
 };
-
 
 export default function ObjectPage() {
   const mounted = useMounted();
@@ -103,7 +96,6 @@ export default function ObjectPage() {
     "idle" | "loading" | "ready" | "error"
   >("idle");
 
-  // Wikipedia object info
   useEffect(() => {
     let cancelled = false;
 
@@ -143,7 +135,6 @@ export default function ObjectPage() {
     };
   }, [obj?.id]);
 
-  // Mood track (cached per object)
   useEffect(() => {
     let cancelled = false;
 
@@ -201,176 +192,226 @@ export default function ObjectPage() {
     };
   }, [obj?.id, wiki?.extract]);
 
+  const card =
+    "rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur";
+  const sectionTitle = "text-sm font-semibold tracking-wide text-white/90";
+  const helper = "mt-2 text-sm text-white/70";
+  const subtle = "text-xs text-white/50";
+
   if (!obj) {
     return (
-      <main className="mx-auto max-w-3xl p-6 font-sans">
-        <Link href="/" className="text-sm underline">
-          ← Back
-        </Link>
-        <p className="mt-4">Object not found.</p>
+      <main className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-neutral-900">
+        <div className="mx-auto max-w-3xl p-6 font-sans text-white">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+          >
+            <span aria-hidden>←</span> Back
+          </Link>
+          <p className="mt-6 text-white/70">Object not found.</p>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6 font-sans">
-      <Link href="/" className="text-sm underline">
-        ← Back
-      </Link>
+    <main className="min-h-screen bg-gradient-to-b from-neutral-950 via-neutral-950 to-neutral-900">
+      <div className="mx-auto max-w-3xl p-6 font-sans text-white">
+        {/* Top bar */}
+        <div className="flex items-start justify-between gap-4">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+          >
+            <span aria-hidden>←</span> Back
+          </Link>
 
-      <h1 className="mt-4 text-2xl font-bold">{obj.name}</h1>
-      <p className="text-sm text-neutral-600">
-        {obj.type} • {obj.constellation} • {obj.id}
-      </p>
-
-      <p className="mt-2 text-xs text-neutral-500">
-        Mode: {mode} • Location: {lat.toFixed(4)}, {lng.toFixed(4)}
-      </p>
-
-      {/* Image */}
-      <section className="mt-4 rounded-xl border p-4">
-        <h2 className="font-semibold">Image</h2>
-
-        {wikiStatus === "loading" && (
-          <p className="mt-2 text-sm text-neutral-600">Loading image…</p>
-        )}
-
-        {wikiStatus === "error" && (
-          <p className="mt-2 text-sm text-neutral-600">
-            Couldn’t load an image right now.
-          </p>
-        )}
-
-        {wikiStatus === "ready" && wiki?.imageSrc ? (
-          <div className="mt-3 overflow-hidden rounded-lg border bg-neutral-50">
-            <img
-              src={wiki.imageSrc}
-              alt={`${obj.name} (Wikipedia image)`}
-              className="h-auto w-full object-cover"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        ) : wikiStatus === "ready" ? (
-          <p className="mt-2 text-sm text-neutral-600">No image available.</p>
-        ) : null}
-
-        {wikiStatus === "ready" && wiki?.pageUrl ? (
-          <p className="mt-2 text-xs text-neutral-500">
-            Source:{" "}
-            <a
-              className="underline"
-              href={wiki.pageUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Wikipedia
-            </a>
-          </p>
-        ) : null}
-      </section>
-
-      {/* Tonight */}
-      <section className="mt-4 rounded-xl border p-4">
-        <h2 className="font-semibold">Tonight</h2>
-
-        {!windowVis ? (
-          <p className="text-sm">Not visible tonight.</p>
-        ) : (
-          <p className="text-sm">
-            Visible: {mounted ? formatTime(windowVis.start) : "—"} –{" "}
-            {mounted ? formatTime(windowVis.end) : "—"}
-            {" • "}
-            Best: {mounted ? formatTime(windowVis.best) : "—"}
-            {" • "}
-            Max alt: {Math.round(windowVis.maxAlt)}°
-          </p>
-        )}
-      </section>
-
-      {/* Mood Track */}
-      <section className="mt-4 rounded-xl border p-4">
-        <h2 className="font-semibold">Mood Track</h2>
-
-        {moodStatus === "loading" && (
-          <p className="mt-2 text-sm text-neutral-600">Finding your vibe…</p>
-        )}
-        {moodStatus === "error" && (
-          <p className="mt-2 text-sm text-neutral-600">
-            Couldn’t load a mood track.
-          </p>
-        )}
-
-        {moodStatus === "ready" && mood ? (
-          <div className="mt-3 flex gap-3">
-            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-neutral-50">
-              {mood.artworkUrl ? (
-                <img
-                  src={mood.artworkUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              ) : null}
+          <div className="text-right">
+            <div className={subtle}>
+              Mode: <span className="text-white/70">{mode}</span>
             </div>
-
-            <div className="min-w-0">
-              <div className="font-semibold">
-                {mood.song} — {mood.artist}
-              </div>
-              <p className="mt-1 text-sm text-neutral-700">{mood.reason}</p>
-
-              {mood.youtubeUrl ? (
-  <a
-    href={mood.youtubeUrl}
-    target="_blank"
-    rel="noreferrer"
-    className="mt-2 inline-block text-sm underline"
-  >
-    Open on YouTube
-  </a>
-) : null}
+            <div className={subtle}>
+              {lat.toFixed(4)}, {lng.toFixed(4)}
             </div>
           </div>
-        ) : null}
-      </section>
+        </div>
 
-      {/* About */}
-      <section className="mt-4 rounded-xl border p-4">
-        <h2 className="font-semibold">About</h2>
-
-        {wikiStatus === "loading" && (
-          <p className="mt-2 text-sm text-neutral-600">Loading background…</p>
-        )}
-
-        {wikiStatus === "error" && (
-          <p className="mt-2 text-sm text-neutral-600">
-            Couldn’t load Wikipedia background right now.
+        {/* Header */}
+        <header className="mt-6">
+          <h1 className="text-3xl font-semibold tracking-tight">{obj.name}</h1>
+          <p className="mt-1 text-sm text-white/70">
+            {obj.type} <span className="text-white/30">•</span>{" "}
+            {obj.constellation} <span className="text-white/30">•</span> {obj.id}
           </p>
-        )}
+        </header>
 
-        {wikiStatus === "ready" && wiki?.extract ? (
-          <>
-            <p className="mt-2 text-sm text-neutral-700">{wiki.extract}</p>
-            {wiki.pageUrl ? (
-              <p className="mt-2 text-xs text-neutral-500">
-                Read more on{" "}
-                <a
-                  className="underline"
-                  href={wiki.pageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Wikipedia
-                </a>
-                .
-              </p>
+        {/* Image */}
+        <section className={`mt-6 ${card}`}>
+          <div className="flex items-center justify-between">
+            <h2 className={sectionTitle}>Image</h2>
+            {wikiStatus === "ready" && wiki?.matchedTitle ? (
+              <span className={subtle}>Matched: {wiki.matchedTitle}</span>
             ) : null}
-          </>
-        ) : wikiStatus === "ready" ? (
-          <p className="mt-2 text-sm text-neutral-600">No background available.</p>
-        ) : null}
-      </section>
+          </div>
+
+          {wikiStatus === "loading" && <p className={helper}>Loading image…</p>}
+
+          {wikiStatus === "error" && (
+            <p className={helper}>Couldn’t load an image right now.</p>
+          )}
+
+          {wikiStatus === "ready" && wiki?.imageSrc ? (
+            <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+              <img
+                src={wiki.imageSrc}
+                alt={`${obj.name} (Wikipedia image)`}
+                className="h-auto w-full object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          ) : wikiStatus === "ready" ? (
+            <p className={helper}>No image available.</p>
+          ) : null}
+
+          {wikiStatus === "ready" && wiki?.pageUrl ? (
+            <p className="mt-3 text-xs text-white/50">
+              Source:{" "}
+              <a
+                className="underline decoration-white/30 underline-offset-4 hover:decoration-white/70"
+                href={wiki.pageUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Wikipedia
+              </a>
+            </p>
+          ) : null}
+        </section>
+
+        {/* Tonight */}
+        <section className={`mt-4 ${card}`}>
+          <h2 className={sectionTitle}>Tonight</h2>
+
+          {!windowVis ? (
+            <p className={helper}>Not visible tonight.</p>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className={subtle}>Visible</div>
+                <div className="mt-1 text-sm">
+                  {mounted ? formatTime(windowVis.start) : "—"} –{" "}
+                  {mounted ? formatTime(windowVis.end) : "—"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className={subtle}>Best</div>
+                <div className="mt-1 text-sm">
+                  {mounted ? formatTime(windowVis.best) : "—"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className={subtle}>Max alt</div>
+                <div className="mt-1 text-sm">{Math.round(windowVis.maxAlt)}°</div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className={subtle}>Notes</div>
+                <div className="mt-1 text-sm text-white/70">
+                  {mode === "home" ? "Deck limits on" : "Deck limits off"}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Mood Track */}
+        <section className={`mt-4 ${card}`}>
+          <div className="flex items-center justify-between">
+            <h2 className={sectionTitle}>Mood Track</h2>
+            {moodStatus === "ready" && mood?.youtubeUrl ? (
+              <a
+                href={mood.youtubeUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-white/70 underline decoration-white/30 underline-offset-4 hover:text-white"
+              >
+                Open on YouTube
+              </a>
+            ) : null}
+          </div>
+
+          {moodStatus === "loading" && (
+            <p className={helper}>Finding your vibe…</p>
+          )}
+          {moodStatus === "error" && (
+            <p className={helper}>Couldn’t load a mood track.</p>
+          )}
+
+          {moodStatus === "ready" && mood ? (
+            <div className="mt-4 flex gap-4">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                {mood.artworkUrl ? (
+                  <img
+                    src={mood.artworkUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+              </div>
+
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold">
+                  {mood.song}
+                </div>
+                <div className="truncate text-sm text-white/70">
+                  {mood.artist}
+                </div>
+                <p className="mt-2 text-sm text-white/75">{mood.reason}</p>
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* About */}
+        <section className={`mt-4 ${card}`}>
+          <h2 className={sectionTitle}>About</h2>
+
+          {wikiStatus === "loading" && (
+            <p className={helper}>Loading background…</p>
+          )}
+
+          {wikiStatus === "error" && (
+            <p className={helper}>
+              Couldn’t load Wikipedia background right now.
+            </p>
+          )}
+
+          {wikiStatus === "ready" && wiki?.extract ? (
+            <>
+              <p className="mt-3 text-sm leading-relaxed text-white/75">
+                {wiki.extract}
+              </p>
+              {wiki.pageUrl ? (
+                <p className="mt-3 text-xs text-white/50">
+                  Read more on{" "}
+                  <a
+                    className="underline decoration-white/30 underline-offset-4 hover:decoration-white/70"
+                    href={wiki.pageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Wikipedia
+                  </a>
+                  .
+                </p>
+              ) : null}
+            </>
+          ) : wikiStatus === "ready" ? (
+            <p className={helper}>No background available.</p>
+          ) : null}
+        </section>
+      </div>
     </main>
   );
 }
