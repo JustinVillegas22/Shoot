@@ -14,8 +14,16 @@ type MoodTrack = {
   song: string;
   artist: string;
   reason: string;
-  artworkUrl: string | null;
-  appleMusicUrl: string | null;
+
+  // legacy (may be absent after you switch)
+  artworkUrl?: string | null;
+
+  // new
+  youtubeUrl?: string | null;
+  youtubeAppUrl?: string | null;
+
+  // legacy (may be absent after you switch)
+  appleMusicUrl?: string | null;
 };
 
 function formatTime(d: Date) {
@@ -40,14 +48,16 @@ function buildWikiTitleCandidates(obj: { id: string; name: string }) {
   if (messierMatch) titles.push(`Messier ${messierMatch[1]}`);
 
   // 2) Prefer full NGC / IC pages
-  const ngcMatch = idRaw.match(/^(NGC|IC)\s?(\d+)$/i) || name.match(/^(NGC|IC)\s?(\d+)$/i);
+  const ngcMatch =
+    idRaw.match(/^(NGC|IC)\s?(\d+)$/i) || name.match(/^(NGC|IC)\s?(\d+)$/i);
   if (ngcMatch) titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]}`);
 
   // 3) Try common name
   if (name && !/^(NGC|IC|M)\s?\d+/i.test(name)) titles.push(name);
 
   // 4) NGC + galaxy disambiguation
-  if (ngcMatch) titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]} galaxy`);
+  if (ngcMatch)
+    titles.push(`${ngcMatch[1].toUpperCase()} ${ngcMatch[2]} galaxy`);
 
   // 5) LAST RESORT: raw id (avoid Caldwell alone)
   if (idRaw && !/^C\d+$/i.test(idRaw)) titles.push(idRaw);
@@ -62,6 +72,29 @@ type WikiObjectInfo = {
   thumbSrc: string | null;
   matchedTitle: string | null;
 };
+
+function openYouTube(appUrl?: string | null, webUrl?: string | null) {
+  const web = webUrl ?? null;
+  const app = appUrl ?? null;
+
+  // If we only have one, just open it.
+  if (!app && web) {
+    window.open(web, "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (app && !web) {
+    window.location.href = app;
+    return;
+  }
+  if (!app && !web) return;
+
+  // Try deep link first, then fall back.
+  // Note: browsers vary, but this is the standard best-effort pattern.
+  window.location.href = app!;
+  setTimeout(() => {
+    window.open(web!, "_blank", "noopener,noreferrer");
+  }, 650);
+}
 
 export default function ObjectPage() {
   const mounted = useMounted();
@@ -78,7 +111,7 @@ export default function ObjectPage() {
 
   const useDeck = mode === "home";
 
-  const window = useMemo(() => {
+  const windowVis = useMemo(() => {
     if (!obj) return null;
 
     return getVisibilityTonight(
@@ -91,10 +124,14 @@ export default function ObjectPage() {
   }, [obj, lat, lng, useDeck]);
 
   const [wiki, setWiki] = useState<WikiObjectInfo | null>(null);
-  const [wikiStatus, setWikiStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [wikiStatus, setWikiStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
 
   const [mood, setMood] = useState<MoodTrack | null>(null);
-  const [moodStatus, setMoodStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [moodStatus, setMoodStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
 
   // Wikipedia object info
   useEffect(() => {
@@ -147,7 +184,7 @@ export default function ObjectPage() {
       setMood(null);
 
       try {
-        const cacheKey = `shootTonight.moodTrack.v1.${obj.id}`;
+        const cacheKey = `shootTonight.moodTrack.v2.${obj.id}`;
         const cachedRaw = localStorage.getItem(cacheKey);
         if (cachedRaw) {
           const cached = JSON.parse(cachedRaw) as MoodTrack;
@@ -162,16 +199,16 @@ export default function ObjectPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-  obj: {
-    id: obj.id,
-    name: obj.name,
-    type: obj.type,
-    constellation: obj.constellation,
-  },
-  context: {
-    wikiExtract: wiki?.extract ?? null,
-  },
-}),
+            obj: {
+              id: obj.id,
+              name: obj.name,
+              type: obj.type,
+              constellation: obj.constellation,
+            },
+            context: {
+              wikiExtract: wiki?.extract ?? null,
+            },
+          }),
         });
 
         if (!res.ok) throw new Error("mood failed");
@@ -192,7 +229,7 @@ export default function ObjectPage() {
     return () => {
       cancelled = true;
     };
-  }, [obj?.id]);
+  }, [obj?.id, wiki?.extract]);
 
   if (!obj) {
     return (
@@ -224,10 +261,14 @@ export default function ObjectPage() {
       <section className="mt-4 rounded-xl border p-4">
         <h2 className="font-semibold">Image</h2>
 
-        {wikiStatus === "loading" && <p className="mt-2 text-sm text-neutral-600">Loading image…</p>}
+        {wikiStatus === "loading" && (
+          <p className="mt-2 text-sm text-neutral-600">Loading image…</p>
+        )}
 
         {wikiStatus === "error" && (
-          <p className="mt-2 text-sm text-neutral-600">Couldn’t load an image right now.</p>
+          <p className="mt-2 text-sm text-neutral-600">
+            Couldn’t load an image right now.
+          </p>
         )}
 
         {wikiStatus === "ready" && wiki?.imageSrc ? (
@@ -247,7 +288,12 @@ export default function ObjectPage() {
         {wikiStatus === "ready" && wiki?.pageUrl ? (
           <p className="mt-2 text-xs text-neutral-500">
             Source:{" "}
-            <a className="underline" href={wiki.pageUrl} target="_blank" rel="noreferrer">
+            <a
+              className="underline"
+              href={wiki.pageUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
               Wikipedia
             </a>
           </p>
@@ -258,15 +304,16 @@ export default function ObjectPage() {
       <section className="mt-4 rounded-xl border p-4">
         <h2 className="font-semibold">Tonight</h2>
 
-        {!window ? (
+        {!windowVis ? (
           <p className="text-sm">Not visible tonight.</p>
         ) : (
           <p className="text-sm">
-            Visible: {mounted ? formatTime(window.start) : "—"} – {mounted ? formatTime(window.end) : "—"}
+            Visible: {mounted ? formatTime(windowVis.start) : "—"} –{" "}
+            {mounted ? formatTime(windowVis.end) : "—"}
             {" • "}
-            Best: {mounted ? formatTime(window.best) : "—"}
+            Best: {mounted ? formatTime(windowVis.best) : "—"}
             {" • "}
-            Max alt: {Math.round(window.maxAlt)}°
+            Max alt: {Math.round(windowVis.maxAlt)}°
           </p>
         )}
       </section>
@@ -275,14 +322,25 @@ export default function ObjectPage() {
       <section className="mt-4 rounded-xl border p-4">
         <h2 className="font-semibold">Mood Track</h2>
 
-        {moodStatus === "loading" && <p className="mt-2 text-sm text-neutral-600">Finding your vibe…</p>}
-        {moodStatus === "error" && <p className="mt-2 text-sm text-neutral-600">Couldn’t load a mood track.</p>}
+        {moodStatus === "loading" && (
+          <p className="mt-2 text-sm text-neutral-600">Finding your vibe…</p>
+        )}
+        {moodStatus === "error" && (
+          <p className="mt-2 text-sm text-neutral-600">
+            Couldn’t load a mood track.
+          </p>
+        )}
 
         {moodStatus === "ready" && mood ? (
           <div className="mt-3 flex gap-3">
             <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-neutral-50">
               {mood.artworkUrl ? (
-                <img src={mood.artworkUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                <img
+                  src={mood.artworkUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
               ) : null}
             </div>
 
@@ -292,10 +350,14 @@ export default function ObjectPage() {
               </div>
               <p className="mt-1 text-sm text-neutral-700">{mood.reason}</p>
 
-              {mood.appleMusicUrl ? (
-                <a className="mt-2 inline-block text-sm underline" href={mood.appleMusicUrl} target="_blank" rel="noreferrer">
-                  Open in Apple Music
-                </a>
+              {mood.youtubeUrl || mood.youtubeAppUrl ? (
+                <button
+                  type="button"
+                  className="mt-2 inline-block text-sm underline"
+                  onClick={() => openYouTube(mood.youtubeAppUrl, mood.youtubeUrl)}
+                >
+                  Open on YouTube
+                </button>
               ) : null}
             </div>
           </div>
@@ -306,10 +368,14 @@ export default function ObjectPage() {
       <section className="mt-4 rounded-xl border p-4">
         <h2 className="font-semibold">About</h2>
 
-        {wikiStatus === "loading" && <p className="mt-2 text-sm text-neutral-600">Loading background…</p>}
+        {wikiStatus === "loading" && (
+          <p className="mt-2 text-sm text-neutral-600">Loading background…</p>
+        )}
 
         {wikiStatus === "error" && (
-          <p className="mt-2 text-sm text-neutral-600">Couldn’t load Wikipedia background right now.</p>
+          <p className="mt-2 text-sm text-neutral-600">
+            Couldn’t load Wikipedia background right now.
+          </p>
         )}
 
         {wikiStatus === "ready" && wiki?.extract ? (
@@ -318,7 +384,12 @@ export default function ObjectPage() {
             {wiki.pageUrl ? (
               <p className="mt-2 text-xs text-neutral-500">
                 Read more on{" "}
-                <a className="underline" href={wiki.pageUrl} target="_blank" rel="noreferrer">
+                <a
+                  className="underline"
+                  href={wiki.pageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   Wikipedia
                 </a>
                 .
