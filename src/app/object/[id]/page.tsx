@@ -14,16 +14,8 @@ type MoodTrack = {
   song: string;
   artist: string;
   reason: string;
-
-  // legacy (may be absent after you switch)
   artworkUrl?: string | null;
-
-  // new
   youtubeUrl?: string | null;
-  youtubeAppUrl?: string | null;
-
-  // legacy (may be absent after you switch)
-  appleMusicUrl?: string | null;
 };
 
 function formatTime(d: Date) {
@@ -73,28 +65,6 @@ type WikiObjectInfo = {
   matchedTitle: string | null;
 };
 
-function openYouTube(appUrl?: string | null, webUrl?: string | null) {
-  const web = webUrl ?? null;
-  const app = appUrl ?? null;
-
-  // If we only have one, just open it.
-  if (!app && web) {
-    window.open(web, "_blank", "noopener,noreferrer");
-    return;
-  }
-  if (app && !web) {
-    window.location.href = app;
-    return;
-  }
-  if (!app && !web) return;
-
-  // Try deep link first, then fall back.
-  // Note: browsers vary, but this is the standard best-effort pattern.
-  window.location.href = app!;
-  setTimeout(() => {
-    window.open(web!, "_blank", "noopener,noreferrer");
-  }, 650);
-}
 
 export default function ObjectPage() {
   const mounted = useMounted();
@@ -184,7 +154,7 @@ export default function ObjectPage() {
       setMood(null);
 
       try {
-        const cacheKey = `shootTonight.moodTrack.v2.${obj.id}`;
+        const cacheKey = `shootTonight.moodTrack.v3.${obj.id}`;
         const cachedRaw = localStorage.getItem(cacheKey);
         if (cachedRaw) {
           const cached = JSON.parse(cachedRaw) as MoodTrack;
@@ -350,15 +320,16 @@ export default function ObjectPage() {
               </div>
               <p className="mt-1 text-sm text-neutral-700">{mood.reason}</p>
 
-              {mood.youtubeUrl || mood.youtubeAppUrl ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-block text-sm underline"
-                  onClick={() => openYouTube(mood.youtubeAppUrl, mood.youtubeUrl)}
-                >
-                  Open on YouTube
-                </button>
-              ) : null}
+              {mood.youtubeUrl ? (
+  <a
+    href={mood.youtubeUrl}
+    target="_blank"
+    rel="noreferrer"
+    className="mt-2 inline-block text-sm underline"
+  >
+    Open on YouTube
+  </a>
+) : null}
             </div>
           </div>
         ) : null}

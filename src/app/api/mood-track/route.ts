@@ -9,7 +9,7 @@ type AstroObjectLite = {
 };
 
 type MoodPick = {
-  query: string; // "SONG ARTIST"
+  query: string;
   song: string;
   artist: string;
   reason: string;
@@ -45,12 +45,10 @@ Wikipedia extract:
 ${wikiExtract ?? "(none)"}
 
 Rules:
-- The recommendation must be specific to THIS object.
-- If the extract includes a distinctive detail (nickname, galaxy type, age, size, distance, discoverer, structure), you MUST reference one of those details in the reason.
-- If no extract exists, use constellation + object type creatively.
-- Pick a real song likely on YouTube.
-- Do NOT choose generic "space ambient" unless it truly fits.
-- Return JSON that matches the schema exactly.
+- Be specific to THIS object.
+- Reference one real detail if possible.
+- Pick a real song on YouTube.
+- Return valid JSON only.
 `;
 
   const resp = await openai.responses.create({
@@ -76,10 +74,6 @@ function youtubeUrl(query: string) {
   );
 }
 
-function youtubeAppUrl(query: string) {
-  return "vnd.youtube://results?search_query=" + encodeURIComponent(query);
-}
-
 export async function POST(req: Request) {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -95,14 +89,15 @@ export async function POST(req: Request) {
     };
 
     const obj = body?.obj;
+
     if (!obj?.id || !obj?.name) {
       return NextResponse.json({ error: "Missing obj" }, { status: 400 });
     }
 
-    const pick = await pickWithOpenAI(obj, body.context?.wikiExtract ?? null);
-
-    const ytWeb = youtubeUrl(pick.query);
-    const ytApp = youtubeAppUrl(pick.query);
+    const pick = await pickWithOpenAI(
+      obj,
+      body.context?.wikiExtract ?? null
+    );
 
     return NextResponse.json({
       song: pick.song,
@@ -110,18 +105,14 @@ export async function POST(req: Request) {
       reason: pick.reason,
       query: pick.query,
 
-      // new
-      youtubeUrl: ytWeb,
-      youtubeAppUrl: ytApp,
-
-      // legacy fields kept (so nothing else breaks)
-      artworkUrl: null,
-      appleMusicUrl: null,
+      // single universal link
+      youtubeUrl: youtubeUrl(pick.query),
     });
   } catch (e: any) {
     console.error("mood-track error:", e);
+
     return NextResponse.json(
-      { error: "Failed to generate mood track", detail: String(e?.message ?? e) },
+      { error: "Failed to generate mood track" },
       { status: 500 }
     );
   }
